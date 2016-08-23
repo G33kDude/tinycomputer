@@ -1,0 +1,473 @@
+jmp init
+
+# --- Macros ---
+
+!@set add 0 !
+
+!@ifcoll
+	jrt checkcoll
+	bgt @checkcoll 0
+!
+
+!@ifnotcoll
+	jrt checkcoll
+	beq @checkcoll 0
+!
+
+# --- Constants ---
+
+!@tetrs   500 ! # Start of tetr array
+!@bag     550 ! # Start of bag array
+!@digits  900 ! # Start of digits array
+!@time m65535 ! #This actually does hold unix time
+
+# --- Variables ---
+
+!@pixx      m100 !
+!@pixy      m101 !
+!@tetr      m103 ! # Shape of active tetronimo
+
+!@checkcoll m104 ! # Output for checkcoll
+!@drawtmp   m105 ! # Temporary drawing var
+
+!@itetr     m106 ! # Index of tetr
+!@rtetr     m107 ! # Rotation of tetr
+!@ptetr     m108 ! # Pointer to tetr
+
+!@sync      m109 ! # Index of sleep loop
+!@speed     m110 ! # MaxIndex of sleep loop (set by down button)
+
+!@btn        m600 ! # For holding b0
+!@btn_w      m601 !
+!@btn_a      m602 !
+!@btn_s      m603 !
+!@btn_d      m604 !
+!@btn_up     m605 !
+!@btn_left   m606 !
+!@btn_down   m607 !
+!@btn_right  m608 !
+!@last_w     m609 !
+!@last_a     m610 !
+!@last_s     m611 !
+!@last_d     m612 !
+!@last_up    m613 !
+!@last_left  m614 !
+!@last_down  m615 !
+!@last_right m616 !
+
+# drawnum
+!@num  m111 ! # Gets erased on call
+!@numx m112 ! # X position of rightmost digit
+!@numy m113 ! # Y position of rightmost digit
+!@numi m114 ! # Number of digits to draw
+
+# drawdigit
+!@digit  m115 !
+!@digitx m116 !
+!@digity m117 !
+!@digita m118 !
+!@digitb m119 !
+!@digitm m120 !
+!@digiti m121 !
+
+!@score  m122 !
+
+!@i      m123 ! # Var for loops
+
+!@flashing m124 ! # For flashing 'GAME OVER' screen
+!@bagc m125 ! # For the random bag grabber
+
+!@nextrand m200 ! #Next random number (gen with random function)
+!@randmul  m201 ! #The multiplier for the lcg
+!@randmod  m202 ! #The modulus for the lcg
+!@randinc  m203 ! #The increment for the lcg
+!@rndnxt   m204 ! #The internal next random (don't use it)
+
+# --- Subroutines ---
+
+#Initialize the random number generator
+randominit:
+	add 12345 0 @randinc   # Increment is initialized
+	add 0 @time @rndnxt    # Seed is initialized
+	not 0 @randmod
+	rs @randmod 1 @randmod # Modulus is initialized
+	add 11035 0 @randmul
+	mul @randmul 1000 @randmul
+	add @randmul 152 @randmul
+	mul @randmul 100 @randmul
+	add @randmul 45 @randmul # Multiplier is initialized
+	jrt nextrandom           # Start up the generator to get initial value ready
+ret
+
+#Generate the next random number
+nextrandom:
+	mul @rndnxt @randmul @rndnxt
+	add @rndnxt @randinc @rndnxt
+	and @rndnxt @randmod @rndnxt
+	rs @rndnxt 16 @nextrand
+ret
+
+# Draws (xor) the active tetronimo
+xortetr:
+	@set 0 @i
+	drawloop:
+		rs @tetr @i @drawtmp       # Shift tetr to get row
+		and @drawtmp 15 @drawtmp   # Mask to row
+		ls @drawtmp @pixx @drawtmp # Shift row to x coordinate
+		xor @drawtmp *@pixy *@pixy # XOR row to the screen
+		add @pixy 1 @pixy          # Increase y pos for next row
+		add @i 4 @i                # Increase loop counter
+	bgt 16 @i drawloop
+	sub @pixy 4 @pixy # Decrease y pos to original
+ret
+
+# Checks for tetronimo collision with on-screen pixels
+checkcoll:
+	@set 0 @checkcoll
+	@set 0 @i
+	checkcollloop:
+		rs @tetr @i @drawtmp         # Shift tetr to get row
+		and @drawtmp 15 @drawtmp     # Mask to row
+		ls @drawtmp @pixx @drawtmp   # Shift row to x coordinate
+		and @drawtmp *@pixy @drawtmp # Check for collision
+		or @drawtmp @checkcoll @checkcoll # Record any collision
+		add @pixy 1 @pixy            # Increase y pos for next row
+		add @i 4 @i                  # Increase loop counter
+	bgt 16 @i checkcollloop
+	sub @pixy 4 @pixy # Decrease y pos to original
+ret
+
+# Stores the active tetronimo bitmap in @tetr
+gettetr:
+	mul @itetr 4 @ptetr
+	add @ptetr @rtetr @ptetr
+	add @ptetr @tetrs @ptetr
+	@set *@ptetr @tetr
+ret
+
+# Erases @num
+drawnum:
+	@set @numi @drawtmp
+	@set @numx @digitx
+	@set @numy @digity
+	drawnumloop:
+		mod @num 10 @digit
+		div @num 10 @num
+		jrt drawdigit
+		sub @digitx 4 @digitx
+		sub @drawtmp 1 @drawtmp
+	bgt @drawtmp 0 drawnumloop
+ret
+
+drawdigit:
+	# Build clearing mask
+	ls 7 @digitx @digitm
+	not @digitm @digitm
+	
+	# Store digit as temporary variable
+	add @digit @digits @digita
+	@set *@digita @digita
+	
+	@set 0 @digiti
+	drawdigitloop:
+		and @digitm *@digity *@digity # Clear area
+		and @digita 7 @digitb         # Mask to row
+		ls @digitb @digitx @digitb    # Shift to area
+		or *@digity @digitb *@digity  # Blit to area
+		
+		rs @digita 3 @digita  # Shift to next bitmap section
+		add @digity 1 @digity # Inc to next row
+		add @digiti 1 @digiti # Inc loop counter
+	bgt 5 @digiti drawdigitloop
+	sub @digity @digiti @digity
+ret
+
+# --- Intialization ---
+
+init:
+
+# Scoreboard Position
+@set 23 @numx
+@set 25 @numy
+
+# Load the digit array
+@set 31599 m900 # 0
+@set 18724 m901 # 1
+@set 29671 m902 # 2
+@set 31207 m903 # 3
+@set 18925 m904 # 4
+@set 31183 m905 # 5
+@set 31695 m906 # 6
+@set 18727 m907 # 7
+@set 31727 m908 # 8
+@set 18927 m909 # 9
+
+@set 27470 m910 # G
+@set 23530 m911 # A
+@set 23549 m912 # M
+@set 29391 m913 # E
+
+@set 31599 m914 # O
+@set 11117 m915 # V
+@set 29391 m916 # E
+@set 23275 m917 # R
+
+# Load the tetronimo array
+@set 562  m500 # T
+@set 114  m501
+@set 610  m502
+@set 624  m503
+
+@set 8738 m504 # I
+@set 240  m505
+@set 8738 m506
+@set 240  m507
+
+@set 51   m508 # O
+@set 51   m509
+@set 51   m510
+@set 51   m511
+
+@set 275  m512 # J
+@set 71   m513
+@set 1604 m514
+@set 1808 m515
+
+@set 785  m516 # L
+@set 23   m517
+@set 1094 m518
+@set 1856 m519
+
+@set 306  m520 # Z
+@set 99   m521
+@set 306  m522
+@set 99   m523
+
+@set 561  m524 # S
+@set 54   m525
+@set 561  m526
+@set 54   m527
+
+# Initialize Bag
+@set 7 @bagc
+@set 0 m550
+@set 1 m551
+@set 2 m552
+@set 3 m553
+@set 4 m554
+@set 5 m555
+@set 6 m556
+
+# Draw screen borders
+@set 0 @drawtmp
+clsloop:
+	ls 2049 10 *@drawtmp
+	add @drawtmp 1 @drawtmp
+bgt 20 @drawtmp clsloop
+ls 4095 10 v20 # Horizontal line
+
+@set 5 @numi
+@set 0 @score
+
+jrt randominit
+
+# --- Game Loop ---
+
+start:
+
+# Draw score
+@set @score @num
+jrt drawnum
+
+# Reset tetr pos
+@set 16 @pixx
+@set 0 @pixy
+
+# Get tetr piece from bag
+jrt nextrandom
+mod @nextrand @bagc @itetr # Here itetr is being used as an index for the bag
+sub @bagc 1 @bagc # bagc is now an index instead of a length
+add @bagc  @bag @bagc  # bagc is now a pointer to a bag element
+add @itetr @bag @itetr # itetr is now a pointer to a bag element
+#
+# XOR swap the two bag items
+#xor *@bagc *@itetr *@bagc
+#xor *@bagc *@itetr *@itetr
+#xor *@bagc *@itetr *@bagc
+@set *@itetr @drawtmp
+@set *@bagc *@itetr
+@set @drawtmp *@bagc
+#
+@set *@bagc @itetr # itetr is now an index again, it is the item that is being removed from the bag
+sub @bagc @bag @bagc # bagc is now a length again. Normally this would just make it back to the index, but since we're also shrinking the bag it is now the length.
+bgt @bagc 0 notresetbag # If the bag isn't empty, don't reset it to full size
+@set 7 @bagc
+notresetbag:
+
+
+# Get tetr piece
+@set 0 @rtetr
+jrt gettetr
+
+# If piece collides before
+# starting you've lost
+@ifcoll end
+
+loop:
+	jrt xortetr
+	
+	# Sleep loop
+	@set 0 @sync
+	sync:
+		vsync
+		jrt getinput
+		@set 32 @speed
+		bgt @btn_down 0 fast
+		fastcont:
+		jrt xortetr
+		bgt @btn_right @last_right mvright
+		bgt @btn_left  @last_left  mvleft
+		bgt @btn_up    @last_up    rotate
+		continue:
+		jrt xortetr
+		add 1 @sync @sync
+	bgt @speed @sync sync
+	
+	jrt xortetr
+	
+	add 1 @pixy @pixy
+	@ifcoll settle
+jmp loop
+
+fast:
+	@set 3 @speed
+	jmp fastcont
+ret
+
+getinput:
+	# Set old btn states
+	@set @btn_w @last_w
+	@set @btn_a @last_a
+	@set @btn_s @last_s
+	@set @btn_d @last_d
+	@set @btn_up    @last_up
+	@set @btn_left  @last_left
+	@set @btn_down  @last_down
+	@set @btn_right @last_right
+	
+	# Get new input frame
+	@set b0 @btn
+	
+	# Set new btn states
+	and @btn   1 @btn_w
+	and @btn   2 @btn_a
+	and @btn   4 @btn_s
+	and @btn   8 @btn_d
+	and @btn  16 @btn_up
+	and @btn  32 @btn_left
+	and @btn  64 @btn_down
+	and @btn 128 @btn_right
+ret
+
+mvleft:
+#	@set 0 @sync
+	sub @pixx 1 @pixx
+	@ifnotcoll continue
+	add @pixx 1 @pixx
+	jmp continue
+ret
+
+mvright:
+#	@set 0 @sync
+	add @pixx 1 @pixx
+	@ifnotcoll continue
+	sub @pixx 1 @pixx
+	jmp continue
+ret
+
+rotate:
+	@set 0 @sync
+	add @rtetr 1 @rtetr
+	mod @rtetr 4 @rtetr
+	jrt gettetr
+	@ifnotcoll continue
+	sub @rtetr 1 @rtetr
+	mod @rtetr 4 @rtetr
+	jrt gettetr
+	jmp continue
+ret
+
+settle:
+	sub @pixy 1 @pixy
+	jrt xortetr
+	jrt scorer
+	jmp start
+ret
+
+!@scorery m1200 !
+!@scorer1 m1201 !
+!@scorer2 m1202 !
+!@scorer3 m1203 !
+!@scorer4 m1204 !
+!@shifty  m1205 !
+!@shiftz  m1206 !
+scorer:
+	ls 2046 10 @drawtmp
+	@set 19 @scorery
+	scorerloop:
+		and @drawtmp *@scorery @scorer1
+		beq @scorer1 @drawtmp scored
+		scoredcont:
+		sub @scorery 1 @scorery
+	bgt @scorery 0 scorerloop
+ret
+scored:
+	add @score 37 @score # So random
+	@set @scorery @shifty
+	jrt shiftrows
+	add @scorery 1 @scorery
+jmp scoredcont
+
+shiftrows:
+	sub @shifty 1 @shiftz
+	@set *@shiftz *@shifty
+	sub @shifty 1 @shifty
+	bgt @shifty 0 shiftrows
+ret
+
+# --- Game Over ---
+
+end:
+# Toggle addition of '18' to
+# force drawing of blank chars
+# via empty memory addresses
+xor 18 @flashing @flashing
+
+@set 3 @digitx
+@set 1 @digity
+@set 10 @i
+drawgameloop:
+	add @i @flashing @digit
+	jrt drawdigit
+	add @digity 6 @digity
+	add @i 1 @i
+bgt 14 @i drawgameloop
+
+@set 26 @digitx
+@set 1 @digity
+@set 14 @i
+drawoverloop:
+	add @i @flashing @digit
+	jrt drawdigit
+	add @digity 6 @digity
+	add @i 1 @i
+bgt 18 @i drawoverloop
+
+@set 0 @i
+endloop:
+	vsync
+	add @i 1 @i
+bgt 30 @i endloop
+
+
+jmp end
