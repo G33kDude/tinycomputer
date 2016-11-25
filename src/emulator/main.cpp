@@ -6,8 +6,13 @@
 
 using instruction = std::array<unsigned short, 4>;
 using instructions = std::vector<instruction>;
+std::array<int, 0xFFFF> global_ram;
+std::array<int, 0xFFFF> global_rom;
+std::vector<int> callstack;
+#include <chrono>
+#include <thread>
 
-unsigned short le16_from_bytes(char bytes[]) {
+unsigned short le16_from_bytes(unsigned char bytes[]) {
 	return bytes[0] | bytes[1] << 8;
 }
 
@@ -26,6 +31,130 @@ void print_instruction(instruction cur_instruction) {
 		cur_instruction[3] << std::endl;
 }
 
+int get_param(instruction instr, int param) {
+	int meta = (instr[0] >> (4+param*3)) & 7; // 0b111
+	int value = instr[param];
+	if (meta & 2) {
+		value = global_rom[value];
+	} else if (meta & 1) {
+		value = global_ram[value];
+	}
+	if (meta & 4) {
+		value = global_ram[value];
+	}
+	return value;
+}
+
+void set_param(instruction instr, int param, int value) {
+	int meta = (instr[0] >> (4+param*3)) & 7; // 0b111
+	if (meta == 0) {
+		throw std::runtime_error("Attempting to set integer literal");
+	}
+	if (meta & 4) { // 0b100
+		int dest = instr[param];
+		if (meta & 2) {
+			dest = global_rom[dest];
+		} else if (meta & 1) {
+			dest = global_ram[dest];
+		}
+		global_ram[dest] = value;
+	} else {
+		if (meta & 2) {
+			throw std::runtime_error("Attemting to set ROM");
+		} else if (meta & 1) {
+			global_ram[instr[param]] = value;
+		} else {
+			printf("%i", meta);
+			throw std::runtime_error("Unkown state");
+		}
+	}
+}
+
+void vsync() {
+	for (int y=0; y<32; y++) {
+		for (int x=31; x>0; x--) {
+			if ((unsigned int)global_ram[y] & (0x80000000 >> x)) {
+				std::cout << '#';
+			} else {
+				std::cout << ' ';
+			}
+		}
+		std::cout << std::endl;
+	}
+	std::this_thread::sleep_for(std::chrono::milliseconds(5));
+}
+
+int do_instr(instruction instr, int ip) {
+	int opcode = instr[0] & 0x7F;
+	switch (opcode) {
+		case 1: // add
+			set_param(instr, 3, get_param(instr, 1) + get_param(instr, 2));
+			break;
+		case 2: // sub
+			set_param(instr, 3, get_param(instr, 1) - get_param(instr, 2));
+			break;
+		case 3: // mul
+			set_param(instr, 3, get_param(instr, 1) * get_param(instr, 2));
+			break;
+		case 4: // div
+			set_param(instr, 3, get_param(instr, 1) / get_param(instr, 2));
+			break;
+		case 5: // mod
+			set_param(instr, 3, get_param(instr, 1) % get_param(instr, 2));
+			break;
+		case 6: // and
+			set_param(instr, 3, get_param(instr, 1) & get_param(instr, 2));
+			break;
+		case 7: // or
+			set_param(instr, 3, get_param(instr, 1) | get_param(instr, 2));
+			break;
+		case 8: // xor
+			set_param(instr, 3, get_param(instr, 1) ^ get_param(instr, 2));
+			break;
+		case 9: // rs
+			set_param(instr, 3, get_param(instr, 1) >> get_param(instr, 2));
+			break;
+		case 10: // ls
+			set_param(instr, 3, get_param(instr, 1) << get_param(instr, 2));
+			break;
+		case 11: // not
+			set_param(instr, 2, ~get_param(instr, 1));
+			break;
+		case 12: // beq
+			if (get_param(instr, 1) == get_param(instr, 2)) {
+				ip += (short)get_param(instr, 3);
+			}
+			break;
+		case 13: // jmp
+			ip += (short)get_param(instr, 1);
+			break;
+		case 14: // vsync
+			vsync();
+			break;
+		case 15: // jrt
+			callstack.push_back(ip);
+			ip += (short)get_param(instr, 1);
+			break;
+		case 16: // ret
+			ip = callstack.back();
+			callstack.pop_back();
+			break;
+		case 17: // bgt
+			if (get_param(instr, 1) > get_param(instr, 2)) {
+				ip += (short)get_param(instr, 3);
+			}
+			break;
+		case 18: // bne
+			if (get_param(instr, 1) != get_param(instr, 2)) {
+				ip += (short)get_param(instr, 3);
+			}
+			break;
+			
+	}
+//	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	return ip;
+}
+
 int main(int argc, char* argv[]) {
 	if (argc != 2) {
 		throw std::runtime_error("Invalid parameter count");
@@ -33,8 +162,8 @@ int main(int argc, char* argv[]) {
 
 	instructions code;
 	FILE* pFile = fopen(argv[1], "rb");
-	for (int ip=0; ; ip++) {
-		char bytes[8];
+	for (;;) {
+		unsigned char bytes[8];
 		int readbytes = fread(bytes, 1, 8, pFile);
 		if (ferror(pFile))
 			throw std::runtime_error("Error reading file");
@@ -50,8 +179,11 @@ int main(int argc, char* argv[]) {
 	}
 	fclose(pFile);
 	
-	for (instruction cur_inst: code) {
-		print_instruction(cur_inst);
+	printf("code size: %i\n", (int)code.size());
+	for (int ip=0; ip<code.size(); ) {
+//		printf("instruction: %x\n", ip);
+//		print_instruction(code[ip]);
+		ip = do_instr(code[ip], ip+1);
 	}
 
 	return 0;
