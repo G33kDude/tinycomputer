@@ -93,7 +93,7 @@ namespace assemble {
 			} else if ((type == "b") && is_digits(data)) {
 				ntype = ASM_TYPE_RORAM; ndata = stoi(data);
 			} else {
-				ntype = ASM_TYPE_LABEL; ndata = input_labels[param] - index;
+				ntype = ASM_TYPE_LABEL; ndata = input_labels[param]-(index+1);
 			}
 
 			// Verify type is valid for parameter
