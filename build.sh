@@ -9,4 +9,4 @@ main.cpp macros.cpp labels.cpp assemble.cpp lines.cpp -std=c++11
 
 cd ../emulator
 
-g++ -g -o ../../bin/emulator.out main.cpp -std=c++11
+g++ -g -o ../../bin/emulator.out main.cpp -lncurses -std=c++11

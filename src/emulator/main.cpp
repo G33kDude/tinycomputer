@@ -3,6 +3,7 @@
 #include <array>
 #include <vector>
 #include <string>
+#include <curses.h>
 
 using instruction = std::array<unsigned short, 4>;
 using instructions = std::vector<instruction>;
@@ -72,16 +73,35 @@ void set_param(instruction instr, int param, int value) {
 
 void vsync() {
 	for (int y=0; y<32; y++) {
-		for (int x=31; x>0; x--) {
-			if ((unsigned int)global_ram[y] & (0x80000000 >> x)) {
-				std::cout << '#';
+		for (int x=0; x<32; x++) {
+			if ((unsigned int)global_ram[y] & (1 << x)) {
+				mvwaddch(stdscr, y, x, '#');
 			} else {
-				std::cout << ' ';
+				mvwaddch(stdscr, y, x, ' ');
 			}
 		}
-		std::cout << std::endl;
 	}
-	std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	int btn = 0;
+	int ch;
+	while ((ch = getch()) != ERR) {
+		switch (ch) {
+			case KEY_UP:
+				btn |= 16;
+				break;
+			case KEY_DOWN:
+				btn |= 64;
+				break;
+			case KEY_LEFT:
+				btn |= 32;
+				break;
+			case KEY_RIGHT:
+				btn |= 128;
+				break;
+		}
+	}
+	global_rom[0] = btn;
+	wrefresh(stdscr);
+	std::this_thread::sleep_for(std::chrono::milliseconds(15));
 }
 
 int do_instr(instruction instr, int ip) {
@@ -179,12 +199,27 @@ int main(int argc, char* argv[]) {
 	}
 	fclose(pFile);
 	
+	initscr();
+	cbreak();
+	noecho();
+//	start_color();
+//	init_pair(1, COLOR_BLACK, COLOR_WHITE);
+//	wbkgd(stdscr, COLOR_PAIR(1));
+	curs_set(0);
+	keypad(stdscr, TRUE); // Enable getch() special chars, such as arrows
+	nodelay(stdscr, TRUE); // Disable getch() blocking
+	
 	printf("code size: %i\n", (int)code.size());
 	for (int ip=0; ip<code.size(); ) {
-//		printf("instruction: %x\n", ip);
-//		print_instruction(code[ip]);
 		ip = do_instr(code[ip], ip+1);
 	}
+	
+	int x = 16; int y = 16;
 
+	int ch;
+	unsigned char btn = 0;
+	while (1) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
 	return 0;
 }
