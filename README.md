@@ -4,6 +4,8 @@ TinyComputer - a virtual machine based on a custom assembly language.
 
 http://smilebasicsource.com/tinycomputer/
 
+![In action](images/ncurses_example.gif)
+
 Architecture
 ------------
 
